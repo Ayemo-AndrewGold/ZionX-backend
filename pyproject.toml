@@ -5,9 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "flask>=3.1",
+    "flask-cors>=5.0",
     "google-cloud-speech>=2.36.1",
     "langchain>=1.2.10",
     "langchain-google-genai>=4.2.1",
+    "langchain-google-vertexai>=3.2.2",
+    "langchain-openai>=1.1.10",
     "langgraph>=1.0.9",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
