@@ -12,18 +12,19 @@ def get_agent():
     return _agent
 
 
-def run(message: str, thread_id: str = "default") -> str:
+def run(message: str, thread_id: str = "default", user_id: str = "guest") -> str:
     """Send a message to the orchestrator and return its response.
 
     Args:
         message: The user's input (already converted to text).
         thread_id: Conversation thread identifier for short-term memory isolation.
+        user_id: User identifier for long-term memory isolation.
     """
     try:
         config = {"configurable": {"thread_id": thread_id}}
 
         messages: list = [{"role": "user", "content": message}]
-        facts = load_facts(thread_id)
+        facts = load_facts(user_id)
         if facts:
             messages.insert(0, {"role": "system", "content": f"[Known facts about this user]\n{facts}"})
 
@@ -31,7 +32,7 @@ def run(message: str, thread_id: str = "default") -> str:
 
         structured: Chat = result["structured_response"]
         if structured.fact:
-            save_fact(thread_id, structured.fact)
+            save_fact(user_id, structured.fact)
 
         return structured.normal_response
     except Exception as e:
