@@ -14,6 +14,7 @@ from agent_config import AgentConfig
 from main import run
 from memory import load_facts, get_all_users, delete_thread_memory, save_fact
 from document_extractor import extract_document_content
+from users import register_user, login_user, logout_user, verify_session, get_user_info
 
 app = Flask(__name__)
 CORS(app)
@@ -34,6 +35,20 @@ SUPPORTED_LANGUAGES = {
     'ig': {'name': 'Igbo', 'voice': 'ada'},
     'en': {'name': 'English', 'voice': 'lily'}
 }
+
+
+def get_authenticated_user():
+    """Get the authenticated user from the request headers."""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    
+    token = auth_header.replace('Bearer ', '')
+    valid, user_data = verify_session(token)
+    
+    if valid:
+        return user_data
+    return None
 
 
 def extract_health_facts_with_ai(content: str, filename: str) -> str:
@@ -99,6 +114,78 @@ def health():
     return {"status": "ok", "model": _config.model_name}
 
 
+# ── Authentication Endpoints ──
+
+@app.post("/auth/register")
+def register():
+    """Register a new user."""
+    body = request.get_json(silent=True) or {}
+    username = body.get("username", "").strip()
+    password = body.get("password", "").strip()
+    email = body.get("email", "").strip() or None
+    
+    success, message = register_user(username, password, email)
+    
+    if success:
+        return {"ok": True, "message": message}, 201
+    else:
+        return {"error": message}, 400
+
+
+@app.post("/auth/login")
+def login():
+    """Authenticate a user and return a session token."""
+    body = request.get_json(silent=True) or {}
+    username = body.get("username", "").strip()
+    password = body.get("password", "").strip()
+    
+    success, message, user_data = login_user(username, password)
+    
+    if success:
+        return {"ok": True, "message": message, "user": user_data}
+    else:
+        return {"error": message}, 401
+
+
+@app.post("/auth/logout")
+def logout():
+    """Logout a user by invalidating their session token."""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return {"error": "No authorization token provided"}, 401
+    
+    token = auth_header.replace('Bearer ', '')
+    success = logout_user(token)
+    
+    if success:
+        return {"ok": True, "message": "Logged out successfully"}
+    else:
+        return {"error": "Invalid session"}, 400
+
+
+@app.get("/auth/verify")
+def verify():
+    """Verify if a session token is valid."""
+    user = get_authenticated_user()
+    
+    if user:
+        return {"ok": True, "user": user}
+    else:
+        return {"error": "Invalid or expired token"}, 401
+
+
+@app.get("/auth/me")
+def get_me():
+    """Get current authenticated user info."""
+    user = get_authenticated_user()
+    
+    if not user:
+        return {"error": "Not authenticated"}, 401
+    
+    user_info = get_user_info(user["username"])
+    return {"user": user_info}
+
+
 @app.post("/chat")
 def chat():
     body = request.get_json(silent=True) or {}
@@ -107,7 +194,14 @@ def chat():
         return {"error": "message is required"}, 400
 
     thread_id = body.get("thread_id", "default")
-    user_id = body.get("user_id", "guest")
+    
+    # Get authenticated user or use provided user_id or default to guest
+    user = get_authenticated_user()
+    if user:
+        user_id = user["user_id"]
+    else:
+        user_id = body.get("user_id", "guest")
+    
     try:
         response = run(message, thread_id=thread_id, user_id=user_id)
     except Exception as exc:  # noqa: BLE001
@@ -119,7 +213,13 @@ def chat():
 @app.get("/memory")
 def get_memory():
     """Get long-term memory/facts for a specific user."""
-    user_id = request.args.get("user_id", "guest")
+    # Get authenticated user or use provided user_id or default to guest
+    user = get_authenticated_user()
+    if user:
+        user_id = user["user_id"]
+    else:
+        user_id = request.args.get("user_id", "guest")
+    
     facts = load_facts(user_id)
     return {"user_id": user_id, "facts": facts or ""}
 
@@ -127,7 +227,13 @@ def get_memory():
 @app.post("/upload")
 def upload_document():
     """Upload a document and append its content to user's long-term memory."""
-    user_id = request.form.get("user_id", "guest")
+    # Get authenticated user or use provided user_id or default to guest
+    user = get_authenticated_user()
+    if user:
+        user_id = user["user_id"]
+    else:
+        user_id = request.form.get("user_id", "guest")
+    
     extract_facts = request.form.get("extract_facts", "true").lower() == "true"
     
     if 'file' not in request.files:
