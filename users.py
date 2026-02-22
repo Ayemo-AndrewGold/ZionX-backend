@@ -81,7 +81,26 @@ def register_user(username: str, password: str, email: str = None) -> tuple[bool
         "password_hash": _hash_password(password),
         "email": email,
         "created_at": datetime.now().isoformat(),
-        "user_id": username  # Use username as user_id for simplicity
+        "user_id": username,  # Use username as user_id for simplicity
+        "profile": {
+            "onboarding_complete": False,
+            "medical_data": {
+                "allergies": [],
+                "medications_to_avoid": [],
+                "blood_group": None,
+                "conditions": [],
+                "ongoing_issues": []
+            },
+            "emergency_contacts": {
+                "consent_given": False,
+                "doctor": {"name": None, "email": None, "phone": None},
+                "loved_ones": []
+            },
+            "preferences": {
+                "language": "en",
+                "output_mode": "text"
+            }
+        }
     }
     
     _save_users(users)
@@ -186,3 +205,127 @@ def get_user_info(username: str) -> dict:
     user = users[username].copy()
     user.pop("password_hash", None)
     return user
+
+
+def update_user_profile(username: str, profile_data: dict) -> tuple[bool, str]:
+    """Update user's onboarding profile information.
+    
+    Args:
+        username: User's username
+        profile_data: Dict with keys like 'allergies', 'medications_to_avoid', 
+                     'blood_group', 'conditions', 'ongoing_issues', 'doctor', 'loved_ones'
+    
+    Returns:
+        (success: bool, message: str)
+    """
+    users = _load_users()
+    
+    if username not in users:
+        return False, "User not found"
+    
+    if "profile" not in users[username]:
+        users[username]["profile"] = {
+            "onboarding_complete": False,
+            "medical_data": {},
+            "emergency_contacts": {},
+            "preferences": {}
+        }
+    
+    # Update medical data
+    if "allergies" in profile_data:
+        users[username]["profile"]["medical_data"]["allergies"] = profile_data["allergies"]
+    
+    if "medications_to_avoid" in profile_data:
+        users[username]["profile"]["medical_data"]["medications_to_avoid"] = profile_data["medications_to_avoid"]
+    
+    if "blood_group" in profile_data:
+        users[username]["profile"]["medical_data"]["blood_group"] = profile_data["blood_group"]
+    
+    if "conditions" in profile_data:
+        users[username]["profile"]["medical_data"]["conditions"] = profile_data["conditions"]
+    
+    if "ongoing_issues" in profile_data:
+        users[username]["profile"]["medical_data"]["ongoing_issues"] = profile_data["ongoing_issues"]
+    
+    # Update emergency contacts
+    if "doctor" in profile_data:
+        users[username]["profile"]["emergency_contacts"]["doctor"] = profile_data["doctor"]
+    
+    if "loved_ones" in profile_data:
+        users[username]["profile"]["emergency_contacts"]["loved_ones"] = profile_data["loved_ones"]
+    
+    if "consent_given" in profile_data:
+        users[username]["profile"]["emergency_contacts"]["consent_given"] = profile_data["consent_given"]
+    
+    # Update preferences
+    if "language" in profile_data:
+        users[username]["profile"]["preferences"]["language"] = profile_data["language"]
+    
+    if "output_mode" in profile_data:
+        users[username]["profile"]["preferences"]["output_mode"] = profile_data["output_mode"]
+    
+    # Mark onboarding as complete if we have substantial data
+    if profile_data.get("mark_complete", False):
+        users[username]["profile"]["onboarding_complete"] = True
+    
+    users[username]["updated_at"] = datetime.now().isoformat()
+    
+    _save_users(users)
+    return True, "Profile updated successfully"
+
+
+def get_user_profile_context(username: str) -> str:
+    """Get formatted user profile context for AI agent.
+    
+    Returns a formatted string with user's medical info for context.
+    """
+    users = _load_users()
+    
+    if username not in users or "profile" not in users[username]:
+        return ""
+    
+    profile = users[username]["profile"]
+    medical = profile.get("medical_data", {})
+    
+    context_parts = []
+    
+    if medical.get("allergies"):
+        context_parts.append(f"Allergies: {', '.join(medical['allergies'])}")
+    
+    if medical.get("medications_to_avoid"):
+        context_parts.append(f"Medications to avoid: {', '.join(medical['medications_to_avoid'])}")
+    
+    if medical.get("blood_group"):
+        context_parts.append(f"Blood group: {medical['blood_group']}")
+    
+    if medical.get("conditions"):
+        context_parts.append(f"Medical conditions: {', '.join(medical['conditions'])}")
+    
+    if medical.get("ongoing_issues"):
+        context_parts.append(f"Ongoing issues: {', '.join(medical['ongoing_issues'])}")
+    
+    return "\n".join(context_parts) if context_parts else ""
+
+
+def get_emergency_contacts(username: str) -> dict:
+    """Get user's emergency contacts.
+    
+    Returns:
+        dict with 'consent_given', 'doctor', and 'loved_ones'
+    """
+    users = _load_users()
+    
+    if username not in users or "profile" not in users[username]:
+        return {"consent_given": False, "doctor": {}, "loved_ones": []}
+    
+    return users[username]["profile"].get("emergency_contacts", {
+        "consent_given": False,
+        "doctor": {},
+        "loved_ones": []
+    })
+
+
+def has_emergency_consent(username: str) -> bool:
+    """Check if user has given consent for emergency contact alerts."""
+    contacts = get_emergency_contacts(username)
+    return contacts.get("consent_given", False)

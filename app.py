@@ -14,7 +14,8 @@ from agent_config import AgentConfig
 from main import run
 from memory import load_facts, get_all_users, delete_thread_memory, save_fact
 from document_extractor import extract_document_content
-from users import register_user, login_user, logout_user, verify_session, get_user_info
+from users import register_user, login_user, logout_user, verify_session, get_user_info, update_user_profile
+from daily_tracking import save_daily_tracking, load_tracking_history, get_tracking_summary
 
 app = Flask(__name__)
 CORS(app)
@@ -186,6 +187,125 @@ def get_me():
     return {"user": user_info}
 
 
+# ── Onboarding & Profile Endpoints ──
+
+@app.post("/onboarding/profile")
+def update_onboarding_profile():
+    """Update user's onboarding profile with medical data and preferences."""
+    user = get_authenticated_user()
+    
+    if not user:
+        return {"error": "Not authenticated"}, 401
+    
+    body = request.get_json(silent=True) or {}
+    
+    # Extract profile data
+    profile_data = {
+        "allergies": body.get("allergies", []),
+        "medications_to_avoid": body.get("medications_to_avoid", []),
+        "blood_group": body.get("blood_group"),
+        "conditions": body.get("conditions", []),
+        "ongoing_issues": body.get("ongoing_issues", []),
+        "language": body.get("language", "en"),
+        "output_mode": body.get("output_mode", "text"),
+        "mark_complete": body.get("mark_complete", False)
+    }
+    
+    # Handle emergency contacts separately
+    if "emergency_contacts" in body:
+        ec = body["emergency_contacts"]
+        profile_data["consent_given"] = ec.get("consent_given", False)
+        profile_data["doctor"] = ec.get("doctor", {})
+        profile_data["loved_ones"] = ec.get("loved_ones", [])
+    
+    success, message = update_user_profile(user["username"], profile_data)
+    
+    if success:
+        return {"ok": True, "message": message}
+    else:
+        return {"error": message}, 400
+
+
+@app.get("/onboarding/profile")
+def get_onboarding_profile():
+    """Get user's onboarding profile."""
+    user = get_authenticated_user()
+    
+    if not user:
+        return {"error": "Not authenticated"}, 401
+    
+    user_info = get_user_info(user["username"])
+    profile = user_info.get("profile", {})
+    
+    return {
+        "ok": True,
+        "profile": profile
+    }
+
+
+# ── Daily Tracking Endpoints ──
+
+@app.post("/tracking/daily")
+def submit_daily_tracking():
+    """Submit daily health tracking data."""
+    user = get_authenticated_user()
+    
+    if not user:
+        return {"error": "Not authenticated"}, 401
+    
+    body = request.get_json(silent=True) or {}
+    
+    tracking_data = {
+        "mood": body.get("mood"),
+        "symptoms": body.get("symptoms", []),
+        "energy": body.get("energy"),
+        "medications": body.get("medications", []),
+        "notes": body.get("notes", "")
+    }
+    
+    entry = save_daily_tracking(user["user_id"], tracking_data)
+    
+    if entry:
+        return {"ok": True, "entry": entry, "message": "Tracking data saved"}
+    else:
+        return {"error": "Failed to save tracking data"}, 500
+
+
+@app.get("/tracking/history")
+def get_tracking_history():
+    """Get user's tracking history."""
+    user = get_authenticated_user()
+    
+    if not user:
+        return {"error": "Not authenticated"}, 401
+    
+    days = request.args.get("days", type=int)
+    entries = load_tracking_history(user["user_id"], days=days)
+    
+    return {
+        "ok": True,
+        "entries": entries,
+        "count": len(entries)
+    }
+
+
+@app.get("/tracking/summary")
+def get_tracking_summary_endpoint():
+    """Get formatted summary of recent tracking data."""
+    user = get_authenticated_user()
+    
+    if not user:
+        return {"error": "Not authenticated"}, 401
+    
+    days = request.args.get("days", 7, type=int)
+    summary = get_tracking_summary(user["user_id"], days=days)
+    
+    return {
+        "ok": True,
+        "summary": summary
+    }
+
+
 @app.post("/chat")
 def chat():
     body = request.get_json(silent=True) or {}
@@ -207,7 +327,7 @@ def chat():
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}, 500
 
-    return {"response": response}
+    return response
 
 
 @app.get("/memory")
