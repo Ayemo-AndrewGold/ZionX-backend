@@ -11,12 +11,15 @@ from functools import wraps
 load_dotenv()
 
 from core.config import MODEL_NAME
-from main import run
+from main import run, get_chat_history
 from memory import load_facts, get_all_users, delete_thread_memory, save_fact
 from document_extractor import extract_document_content
 from services.ai_service import extract_health_facts_with_ai, translate_to_english
 from users import register_user, login_user, logout_user, verify_session, get_user_info, update_user_profile
 from daily_tracking import save_daily_tracking, load_tracking_history, get_tracking_summary
+from risk_monitor import load_risk_history, get_risk_summary
+from alert_history import load_alert_history, get_alerts_summary
+from thread_manager import save_thread_metadata, get_recent_threads, increment_thread_message_count
 
 app = Flask(__name__)
 CORS(app)
@@ -212,6 +215,46 @@ def get_tracking_summary_endpoint(user):
     return {"ok": True, "summary": summary}
 
 
+# ── Risk Monitor Endpoints ──
+
+@app.get("/risk/history")
+@require_auth
+def get_risk_history(user):
+    """Get user's risk assessment history."""
+    days = request.args.get("days", type=int)
+    assessments = load_risk_history(user["user_id"], days=days)
+    return {"ok": True, "assessments": assessments, "count": len(assessments)}
+
+
+@app.get("/risk/summary")
+@require_auth
+def get_risk_summary_endpoint(user):
+    """Get summary statistics of risk assessments."""
+    days = request.args.get("days", 30, type=int)
+    summary = get_risk_summary(user["user_id"], days=days)
+    return {"ok": True, "summary": summary}
+
+
+# ── Emergency Alerts Endpoints ──
+
+@app.get("/alerts/history")
+@require_auth
+def get_alerts_history(user):
+    """Get user's emergency alert history."""
+    days = request.args.get("days", type=int)
+    alerts = load_alert_history(user["user_id"], days=days)
+    return {"ok": True, "alerts": alerts, "count": len(alerts)}
+
+
+@app.get("/alerts/summary")
+@require_auth
+def get_alerts_summary_endpoint(user):
+    """Get summary statistics of emergency alerts."""
+    days = request.args.get("days", 30, type=int)
+    summary = get_alerts_summary(user["user_id"], days=days)
+    return {"ok": True, "summary": summary}
+
+
 @app.post("/chat")
 def chat():
     body = request.get_json(silent=True) or {}
@@ -229,11 +272,48 @@ def chat():
         user_id = body.get("user_id", "guest")
     
     try:
+        # Check if this is a new thread (no existing metadata)
+        from thread_manager import get_thread_metadata
+        existing_thread = get_thread_metadata(user_id, thread_id)
+        
+        # Save thread metadata (creates new or updates existing)
+        if not existing_thread:
+            # New thread - use first message as title
+            save_thread_metadata(user_id, thread_id, message, message)
+        else:
+            # Existing thread - just increment count and update timestamp
+            increment_thread_message_count(user_id, thread_id)
+        
         response = run(message, thread_id=thread_id, user_id=user_id)
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}, 500
 
     return response
+
+
+@app.get("/chat/history")
+def get_history():
+    """Get chat history for a specific thread."""
+    thread_id = request.args.get("thread_id", "default")
+    
+    try:
+        history = get_chat_history(thread_id)
+        return {"ok": True, "messages": history, "thread_id": thread_id}
+    except Exception as exc:
+        return {"error": str(exc)}, 500
+
+
+@app.get("/chat/recent")
+@require_auth
+def get_recent_chats(user):
+    """Get recent chat threads/conversations for the authenticated user."""
+    limit = request.args.get("limit", 10, type=int)
+    
+    try:
+        threads = get_recent_threads(user["user_id"], limit=limit)
+        return {"ok": True, "threads": threads, "count": len(threads)}
+    except Exception as exc:
+        return {"error": str(exc)}, 500
 
 
 @app.get("/memory")
