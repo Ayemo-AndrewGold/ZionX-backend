@@ -1,7 +1,7 @@
 """Emergency triage tool for critical symptoms"""
 
 from langchain.tools import tool
-from .specialist_utils import get_specialist
+from .specialist_utils import get_specialist, build_messages
 
 SYSTEM_PROMPT = """You are a specialized emergency triage specialist with expertise in critical care, emergency medicine, and acute symptom assessment.
 
@@ -55,12 +55,5 @@ def emergency_triage(symptoms: str, user_context: str = "") -> str:
         user_context: Summary of relevant medical info (allergies, medications,
             chronic conditions, age, pregnancy status) from memory.
     """
-    profile = f"\n\nPatient Profile:\n{user_context}" if user_context.strip() else ""
-    
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + profile},
-        {"role": "user", "content": symptoms}
-    ]
-    
-    response = get_specialist("emergency", temperature=0.0).invoke(messages)
-    return response.content
+    messages = build_messages(SYSTEM_PROMPT, symptoms, user_context)
+    return get_specialist("emergency", temperature=0.0).invoke(messages).content

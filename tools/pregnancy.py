@@ -1,7 +1,7 @@
 """Pregnant woman advisory tool"""
 
 from langchain.tools import tool
-from .specialist_utils import get_specialist
+from .specialist_utils import get_specialist, build_messages
 
 SYSTEM_PROMPT = """You are a specialized pregnancy healthcare advisor with deep expertise in obstetrics, maternal nutrition, fetal development, and perinatal mental health.
 
@@ -29,12 +29,5 @@ def pregnancy_advisor(question: str, user_context: str = "") -> str:
         user_context: Optional. Relevant user info (allergies, medications,
             known conditions, trimester) from memory.
     """
-    profile = f"\n\nUser Profile:\n{user_context}" if user_context.strip() else ""
-    
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + profile},
-        {"role": "user", "content": question}
-    ]
-    
-    response = get_specialist("pregnancy", temperature=0.1).invoke(messages)
-    return response.content
+    messages = build_messages(SYSTEM_PROMPT, question, user_context)
+    return get_specialist("pregnancy", temperature=0.1).invoke(messages).content

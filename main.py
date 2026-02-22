@@ -1,4 +1,5 @@
-from agent import create_zionx_agent, Chat
+from agent import create_zionx_agent
+from core.models import Chat
 from memory import load_facts, save_fact
 from users import get_user_profile_context
 from daily_tracking import get_tracking_summary

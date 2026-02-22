@@ -1,31 +1,30 @@
 from flask import Flask, request, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-from langchain_google_genai import ChatGoogleGenerativeAI
 from spitch import Spitch
 from dotenv import load_dotenv
 import os
 import io
+from functools import wraps
 
 # Load environment variables from .env file
 load_dotenv()
 
-from agent_config import AgentConfig
+from core.config import MODEL_NAME
 from main import run
 from memory import load_facts, get_all_users, delete_thread_memory, save_fact
 from document_extractor import extract_document_content
+from services.ai_service import extract_health_facts_with_ai, translate_to_english
 from users import register_user, login_user, logout_user, verify_session, get_user_info, update_user_profile
 from daily_tracking import save_daily_tracking, load_tracking_history, get_tracking_summary
 
 app = Flask(__name__)
 CORS(app)
 
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'md'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'docx', 'md'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-_config = AgentConfig.from_env()
 
 spitch_client = Spitch() if os.getenv("SPITCH_API_KEY") else None
 
@@ -39,80 +38,29 @@ SUPPORTED_LANGUAGES = {
 
 
 def get_authenticated_user():
-    """Get the authenticated user from the request headers."""
+    """Parse the Bearer token from the request and return the user dict, or None."""
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer '):
         return None
-    
     token = auth_header.replace('Bearer ', '')
     valid, user_data = verify_session(token)
-    
-    if valid:
-        return user_data
-    return None
+    return user_data if valid else None
 
 
-def extract_health_facts_with_ai(content: str, filename: str) -> str:
-    """Use AI to extract relevant health facts from document content."""
-    try:
-        llm = ChatGoogleGenerativeAI(
-            model=_config.model_name,
-            temperature=_config.temperature
-        )
-        
-        prompt = f"""Analyze the following document and extract ONLY important long-term facts that should be remembered.
-Extract and list ONLY
-Document: {filename}
-
-Content:
-{content[:4000]}  # Limit to avoid token overflow
-
-If no significan information is found return text 'None'
-"""
-        
-        response = llm.invoke(prompt).text
-        return f"\n--- {filename} ---\n{response}\n\n"
-    except Exception as e:
-        print(f"Error extracting facts with AI: {e}")
-        return ""
-
-
-def translate_to_english(text: str, source_language: str) -> str:
-    """Translate text from source language to English using Gemini AI."""
-    if source_language == 'en':
-        return text  # Already in English
-    
-    try:
-        llm = ChatGoogleGenerativeAI(
-            model=_config.model_name,
-            temperature=0.1
-        )
-        
-        language_names = {
-            'yo': 'Yoruba',
-            'ha': 'Hausa',
-            'ig': 'Igbo'
-        }
-        
-        lang_name = language_names.get(source_language, source_language)
-        
-        prompt = f"""Translate the following {lang_name} text to English. 
-Provide ONLY the English translation, nothing else.
-
-{lang_name} text: {text}
-
-English translation:"""
-        
-        response = llm.invoke(prompt).text.strip()
-        return response
-    except Exception as e:
-        print(f"Translation error: {e}")
-        return text  # Return original text if translation fails
+def require_auth(f):
+    """Decorator that enforces authentication and injects the user dict as the first argument."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        user = get_authenticated_user()
+        if not user:
+            return {"error": "Not authenticated"}, 401
+        return f(user, *args, **kwargs)
+    return wrapper
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model": _config.model_name}
+    return {"status": "ok", "model": MODEL_NAME}
 
 
 # ── Authentication Endpoints ──
@@ -165,24 +113,16 @@ def logout():
 
 
 @app.get("/auth/verify")
-def verify():
+@require_auth
+def verify(user):
     """Verify if a session token is valid."""
-    user = get_authenticated_user()
-    
-    if user:
-        return {"ok": True, "user": user}
-    else:
-        return {"error": "Invalid or expired token"}, 401
+    return {"ok": True, "user": user}
 
 
 @app.get("/auth/me")
-def get_me():
+@require_auth
+def get_me(user):
     """Get current authenticated user info."""
-    user = get_authenticated_user()
-    
-    if not user:
-        return {"error": "Not authenticated"}, 401
-    
     user_info = get_user_info(user["username"])
     return {"user": user_info}
 
@@ -190,13 +130,9 @@ def get_me():
 # ── Onboarding & Profile Endpoints ──
 
 @app.post("/onboarding/profile")
-def update_onboarding_profile():
+@require_auth
+def update_onboarding_profile(user):
     """Update user's onboarding profile with medical data and preferences."""
-    user = get_authenticated_user()
-    
-    if not user:
-        return {"error": "Not authenticated"}, 401
-    
     body = request.get_json(silent=True) or {}
     
     # Extract profile data
@@ -227,34 +163,22 @@ def update_onboarding_profile():
 
 
 @app.get("/onboarding/profile")
-def get_onboarding_profile():
+@require_auth
+def get_onboarding_profile(user):
     """Get user's onboarding profile."""
-    user = get_authenticated_user()
-    
-    if not user:
-        return {"error": "Not authenticated"}, 401
-    
     user_info = get_user_info(user["username"])
     profile = user_info.get("profile", {})
-    
-    return {
-        "ok": True,
-        "profile": profile
-    }
+    return {"ok": True, "profile": profile}
 
 
 # ── Daily Tracking Endpoints ──
 
 @app.post("/tracking/daily")
-def submit_daily_tracking():
+@require_auth
+def submit_daily_tracking(user):
     """Submit daily health tracking data."""
-    user = get_authenticated_user()
-    
-    if not user:
-        return {"error": "Not authenticated"}, 401
-    
     body = request.get_json(silent=True) or {}
-    
+
     tracking_data = {
         "mood": body.get("mood"),
         "symptoms": body.get("symptoms", []),
@@ -262,48 +186,30 @@ def submit_daily_tracking():
         "medications": body.get("medications", []),
         "notes": body.get("notes", "")
     }
-    
+
     entry = save_daily_tracking(user["user_id"], tracking_data)
-    
+
     if entry:
         return {"ok": True, "entry": entry, "message": "Tracking data saved"}
-    else:
-        return {"error": "Failed to save tracking data"}, 500
+    return {"error": "Failed to save tracking data"}, 500
 
 
 @app.get("/tracking/history")
-def get_tracking_history():
+@require_auth
+def get_tracking_history(user):
     """Get user's tracking history."""
-    user = get_authenticated_user()
-    
-    if not user:
-        return {"error": "Not authenticated"}, 401
-    
     days = request.args.get("days", type=int)
     entries = load_tracking_history(user["user_id"], days=days)
-    
-    return {
-        "ok": True,
-        "entries": entries,
-        "count": len(entries)
-    }
+    return {"ok": True, "entries": entries, "count": len(entries)}
 
 
 @app.get("/tracking/summary")
-def get_tracking_summary_endpoint():
+@require_auth
+def get_tracking_summary_endpoint(user):
     """Get formatted summary of recent tracking data."""
-    user = get_authenticated_user()
-    
-    if not user:
-        return {"error": "Not authenticated"}, 401
-    
     days = request.args.get("days", 7, type=int)
     summary = get_tracking_summary(user["user_id"], days=days)
-    
-    return {
-        "ok": True,
-        "summary": summary
-    }
+    return {"ok": True, "summary": summary}
 
 
 @app.post("/chat")

@@ -1,15 +1,20 @@
-"""Configuration for ZionX agent orchestration."""
+"""Configuration for ZionX agent orchestration.
+
+LLM model and temperature come from core.config (single source of truth).
+Only the context-editing middleware parameters live here.
+"""
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+from core.config import MODEL_NAME, TEMPERATURE
 
 
 @dataclass
 class AgentConfig:
-    """Agent behaviour and resource limits — all fields overridable via env vars."""
+    """Agent behaviour parameters — all fields overridable via env vars."""
 
-    model_name: str = "gemini-3-flash-preview"
-    temperature: float = 0.1
-    max_iterations: int = 25
+    model_name: str = MODEL_NAME
+    temperature: float = TEMPERATURE
 
     # Context-editing middleware
     context_editing_trigger_tokens: int = 50_000
@@ -18,13 +23,12 @@ class AgentConfig:
     @classmethod
     def from_env(cls) -> "AgentConfig":
         return cls(
-            model_name=os.getenv("AGENT_MODEL_NAME", cls.model_name),
-            temperature=float(os.getenv("AGENT_TEMPERATURE", cls.temperature)),
-            max_iterations=int(os.getenv("AGENT_MAX_ITERATIONS", cls.max_iterations)),
+            model_name=MODEL_NAME,
+            temperature=TEMPERATURE,
             context_editing_trigger_tokens=int(
-                os.getenv("CONTEXT_EDITING_TRIGGER_TOKENS", cls.context_editing_trigger_tokens)
+                os.getenv("CONTEXT_EDITING_TRIGGER_TOKENS", 50_000)
             ),
             context_editing_keep_calls=int(
-                os.getenv("CONTEXT_EDITING_KEEP_CALLS", cls.context_editing_keep_calls)
+                os.getenv("CONTEXT_EDITING_KEEP_CALLS", 4)
             ),
         )

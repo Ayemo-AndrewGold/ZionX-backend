@@ -1,40 +1,46 @@
-"""Shared utility for creating specialized LLM instances"""
+"""Shared utilities for specialist LLM instances.
 
-import os
+Provides a properly-keyed cache (specialist type + model + temperature) and a
+`build_messages` helper that every tool uses to build its message list,
+eliminating repeated boilerplate across tool files.
+"""
 from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 
+from core.config import MODEL_NAME, SPECIALIST_TEMPERATURE
+
 load_dotenv()
 
-DEFAULT_MODEL = os.getenv("SPECIALIST_MODEL", "gemini-3-flash-preview")
-DEFAULT_TEMPERATURE = float(os.getenv("SPECIALIST_TEMPERATURE", "0.1"))
+# Cache keyed on (specialist_type, model, temperature) so that tools that
+# override temperature (e.g. emergency_triage) always receive the correct
+# instance rather than the first one that was cached.
+_cache: dict[tuple, ChatGoogleGenerativeAI] = {}
 
 
 def get_specialist(
-    specialist_type: str = None,
-    model: str = None,
-    temperature: float = None
+    specialist_type: str = "default",
+    model: str | None = None,
+    temperature: float | None = None,
 ) -> ChatGoogleGenerativeAI:
+    """Return a cached ChatGoogleGenerativeAI instance for the given specialist."""
+    model = model or MODEL_NAME
+    temperature = temperature if temperature is not None else SPECIALIST_TEMPERATURE
+    key = (specialist_type, model, temperature)
+    if key not in _cache:
+        _cache[key] = ChatGoogleGenerativeAI(model=model, temperature=temperature)
+    return _cache[key]
+
+
+def build_messages(system_prompt: str, question: str, user_context: str = "") -> list[dict]:
+    """Build the message list for a specialist LLM call.
+
+    Appends the user context block to the system prompt when provided,
+    keeping each tool's call site to a single line.
     """
-    Get or create a specialist LLM instance with caching.
-    
-    Args:
-        specialist_type: Optional type identifier for caching (e.g., 'pregnancy', 'diabetes')
-        model: LLM model to use. Defaults to SPECIALIST_MODEL env var or 'gemini-2.0-flash-exp'
-        temperature: Temperature setting. Defaults to SPECIALIST_TEMPERATURE env var or 0.3
-        
-    Returns:
-        ChatGoogleGenerativeAI instance
-    """
-    model = model or DEFAULT_MODEL
-    temperature = temperature if temperature is not None else DEFAULT_TEMPERATURE
-    
-    cache_key = f"_{specialist_type or 'default'}_specialist"
-    
-    if cache_key not in globals() or globals()[cache_key] is None:
-        globals()[cache_key] = ChatGoogleGenerativeAI(
-            model=model,
-            temperature=temperature,
-        )
-    
-    return globals()[cache_key]
+    system = system_prompt
+    if user_context.strip():
+        system = f"{system_prompt}\n\nUser Context:\n{user_context}"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": question},
+    ]

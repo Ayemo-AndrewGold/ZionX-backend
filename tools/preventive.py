@@ -1,7 +1,7 @@
 """Preventive health analyzer tool for pattern detection and early intervention"""
 
 from langchain.tools import tool
-from .specialist_utils import get_specialist
+from .specialist_utils import get_specialist, build_messages
 
 SYSTEM_PROMPT = """You are a preventive medicine specialist with expertise in population health, epidemiology, risk stratification, and early disease detection.
 
@@ -56,12 +56,5 @@ def preventive_health_analyzer(health_history: str, user_context: str = "") -> s
         user_context: User's complete health profile from memory (chronic conditions,
             medications, family history, demographics, past measurements/symptoms).
     """
-    profile = f"\n\nUser Health Profile & History:\n{user_context}" if user_context.strip() else ""
-    
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + profile},
-        {"role": "user", "content": health_history}
-    ]
-    
-    response = get_specialist("preventive", temperature=0.2).invoke(messages)
-    return response.content
+    messages = build_messages(SYSTEM_PROMPT, health_history, user_context)
+    return get_specialist("preventive", temperature=0.2).invoke(messages).content
