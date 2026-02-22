@@ -234,7 +234,10 @@ def transcribe_audio():
 
 @app.post("/speech/generate")
 def generate_speech():
-    """Convert text to speech using Spitch API."""
+    """
+    Convert English text to speech in target language using Spitch API.
+    Process: English text → translate to target language → generate speech
+    """
     if not spitch_client:
         return {"error": "Speech service not configured"}, 503
     
@@ -250,9 +253,21 @@ def generate_speech():
         return {"error": f"Unsupported language: {language}. Supported: {list(SUPPORTED_LANGUAGES.keys())}"}, 400
     
     try:
+        # Step 1: Translate English text to target language (if not already English)
+        if language != 'en':
+            translation = spitch_client.text.translate(
+                text=text,
+                source="en",
+                target=language
+            )
+            translated_text = translation.text
+        else:
+            translated_text = text
+        
+        # Step 2: Generate speech from the translated text
         voice = SUPPORTED_LANGUAGES[language]['voice']
         response = spitch_client.speech.generate(
-            text=text,
+            text=translated_text,
             language=language,
             voice=voice,
             format=audio_format
