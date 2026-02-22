@@ -1,7 +1,7 @@
 """Diabetes advisory tool"""
 
 from langchain.tools import tool
-from .specialist_utils import get_specialist
+from .specialist_utils import get_specialist, build_messages
 
 SYSTEM_PROMPT = """You are a specialist in endocrinology and diabetes care with expertise in Type 1, Type 2, and gestational diabetes, insulin therapy, and metabolic health.
 
@@ -29,12 +29,5 @@ def diabetes_advisor(question: str, user_context: str = "") -> str:
         user_context: Summary of relevant user info (diabetes type, medications,
             recent glucose readings, comorbidities) from memory.
     """
-    profile = f"\n\nUser Profile:\n{user_context}" if user_context.strip() else ""
-    
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + profile},
-        {"role": "user", "content": question}
-    ]
-    
-    response = get_specialist("diabetes").invoke(messages)
-    return response.content
+    messages = build_messages(SYSTEM_PROMPT, question, user_context)
+    return get_specialist("diabetes").invoke(messages).content

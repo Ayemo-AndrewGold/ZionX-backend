@@ -1,4 +1,5 @@
-from agent import create_zionx_agent, Chat
+from agent import create_zionx_agent
+from core.models import Chat
 from memory import load_facts, save_fact
 from users import get_user_profile_context
 from daily_tracking import get_tracking_summary
@@ -76,7 +77,7 @@ def run(message: str, thread_id: str = "default", user_id: str = "guest") -> dic
             
             if success:
                 # Append alert confirmation to response
-                structured.normal_response += f"\n\n⚠️ **Emergency Alert Sent**: {alert_message}"
+                structured.normal_response += f"\n\n **Emergency Alert Sent**: {alert_message}"
 
         return {
             "response": structured.normal_response,
@@ -96,6 +97,5 @@ def run(message: str, thread_id: str = "default", user_id: str = "guest") -> dic
         }
 
 
-# # ── Quick CLI test ─────────────────────────────────────────────────────────────
 # if __name__ == "__main__":
 #     print(run("I'm 7 months pregnant and I've been having headaches. What should I do?"))

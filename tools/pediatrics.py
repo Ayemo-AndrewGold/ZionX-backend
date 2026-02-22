@@ -1,7 +1,7 @@
 """Pediatrics advisory tool"""
 
 from langchain.tools import tool
-from .specialist_utils import get_specialist
+from .specialist_utils import get_specialist, build_messages
 
 SYSTEM_PROMPT = """You are a specialist pediatrician with expertise spanning neonatology, child development, adolescent medicine, and preventive pediatric care.
 
@@ -30,12 +30,5 @@ def pediatrics_advisor(question: str, user_context: str = "") -> str:
         user_context: Summary of relevant child info (age, weight, known conditions,
             vaccination history, current medications) from memory.
     """
-    profile = f"\n\nChild/Patient Profile:\n{user_context}" if user_context.strip() else ""
-    
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + profile},
-        {"role": "user", "content": question}
-    ]
-    
-    response = get_specialist("pediatrics").invoke(messages)
-    return response.content
+    messages = build_messages(SYSTEM_PROMPT, question, user_context)
+    return get_specialist("pediatrics").invoke(messages).content

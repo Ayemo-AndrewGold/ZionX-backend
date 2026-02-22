@@ -1,7 +1,7 @@
 """Mental health advisory tool"""
 
 from langchain.tools import tool
-from .specialist_utils import get_specialist
+from .specialist_utils import get_specialist, build_messages
 
 SYSTEM_PROMPT = """You are a specialist in psychiatry and clinical psychology with expertise in mood disorders, anxiety, trauma-informed care, and psychopharmacology.
 
@@ -30,12 +30,5 @@ def mental_health_advisor(question: str, user_context: str = "") -> str:
         user_context: Summary of relevant info (diagnosed conditions, current
             medications, therapy status, significant stressors) from memory.
     """
-    profile = f"\n\nUser Profile:\n{user_context}" if user_context.strip() else ""
-    
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + profile},
-        {"role": "user", "content": question}
-    ]
-    
-    response = get_specialist("mental_health").invoke(messages)
-    return response.content
+    messages = build_messages(SYSTEM_PROMPT, question, user_context)
+    return get_specialist("mental_health").invoke(messages).content
