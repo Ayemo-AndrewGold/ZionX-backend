@@ -1,6 +1,5 @@
 """Simple file-based long-term memory per thread."""
 
-import os
 from pathlib import Path
 
 MEMORY_DIR = "memory"

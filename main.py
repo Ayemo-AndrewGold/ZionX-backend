@@ -77,7 +77,7 @@ def run(message: str, thread_id: str = "default", user_id: str = "guest") -> dic
             
             if success:
                 # Append alert confirmation to response
-                structured.normal_response += f"\n\n⚠️ **Emergency Alert Sent**: {alert_message}"
+                structured.normal_response += f"\n\n **Emergency Alert Sent**: {alert_message}"
 
         return {
             "response": structured.normal_response,
@@ -97,6 +97,5 @@ def run(message: str, thread_id: str = "default", user_id: str = "guest") -> dic
         }
 
 
-# # ── Quick CLI test ─────────────────────────────────────────────────────────────
 # if __name__ == "__main__":
 #     print(run("I'm 7 months pregnant and I've been having headaches. What should I do?"))

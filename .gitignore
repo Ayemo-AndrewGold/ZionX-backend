@@ -7,3 +7,7 @@ uv.lock
 **.mp3
 **.txt
 **.json
+**.md
+!README.md
+HACKATHON_IMPLEMENTATION.md
+PRESENTATION_DECK_FINAL.md
