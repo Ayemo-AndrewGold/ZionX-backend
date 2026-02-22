@@ -1,7 +1,14 @@
-from flask import Flask, request
+from flask import Flask, request, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from langchain_google_genai import ChatGoogleGenerativeAI
+from spitch import Spitch
+from dotenv import load_dotenv
+import os
+import io
+
+# Load environment variables from .env file
+load_dotenv()
 
 from agent_config import AgentConfig
 from main import run
@@ -17,6 +24,16 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 _config = AgentConfig.from_env()
+
+spitch_client = Spitch() if os.getenv("SPITCH_API_KEY") else None
+
+# Supported Nigerian languages
+SUPPORTED_LANGUAGES = {
+    'yo': {'name': 'Yoruba', 'voice': 'sade'},
+    'ha': {'name': 'Hausa', 'voice': 'amina'},
+    'ig': {'name': 'Igbo', 'voice': 'ada'},
+    'en': {'name': 'English', 'voice': 'lily'}
+}
 
 
 def extract_health_facts_with_ai(content: str, filename: str) -> str:
@@ -42,6 +59,39 @@ If no significan information is found return text 'None'
     except Exception as e:
         print(f"Error extracting facts with AI: {e}")
         return ""
+
+
+def translate_to_english(text: str, source_language: str) -> str:
+    """Translate text from source language to English using Gemini AI."""
+    if source_language == 'en':
+        return text  # Already in English
+    
+    try:
+        llm = ChatGoogleGenerativeAI(
+            model=_config.model_name,
+            temperature=0.1
+        )
+        
+        language_names = {
+            'yo': 'Yoruba',
+            'ha': 'Hausa',
+            'ig': 'Igbo'
+        }
+        
+        lang_name = language_names.get(source_language, source_language)
+        
+        prompt = f"""Translate the following {lang_name} text to English. 
+Provide ONLY the English translation, nothing else.
+
+{lang_name} text: {text}
+
+English translation:"""
+        
+        response = llm.invoke(prompt).text.strip()
+        return response
+    except Exception as e:
+        print(f"Translation error: {e}")
+        return text  # Return original text if translation fails
 
 
 @app.get("/health")
@@ -140,6 +190,97 @@ def delete_memory():
         return {"ok": True, "message": f"Memory deleted for user {user_id}"}
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}, 500
+
+
+@app.post("/speech/transcribe")
+def transcribe_audio():
+    """Convert speech to text using Spitch API, then translate to English."""
+    if not spitch_client:
+        return {"error": "Speech service not configured"}, 503
+    
+    if 'audio' not in request.files:
+        return {"error": "No audio file provided"}, 400
+    
+    audio_file = request.files['audio']
+    language = request.form.get('language', 'yo')  # Default to Yoruba
+    
+    if language not in SUPPORTED_LANGUAGES:
+        return {"error": f"Unsupported language: {language}. Supported: {list(SUPPORTED_LANGUAGES.keys())}"}, 400
+    
+    try:
+        audio_content = audio_file.read()
+        
+        # Step 1: Transcribe audio in the original language
+        response = spitch_client.speech.transcribe(
+            language=language,
+            content=audio_content,
+            timestamp="sentence"
+        )
+        
+        original_text = response.text
+        
+        # Step 2: Translate to English if not already in English
+        english_text = translate_to_english(original_text, language)
+        
+        return {
+            "ok": True,
+            "text": english_text,
+            "original_text": original_text if language != 'en' else None,
+            "language": language
+        }
+    except Exception as exc:
+        return {"error": str(exc)}, 500
+
+
+@app.post("/speech/generate")
+def generate_speech():
+    """Convert text to speech using Spitch API."""
+    if not spitch_client:
+        return {"error": "Speech service not configured"}, 503
+    
+    body = request.get_json(silent=True) or {}
+    text = body.get("text", "").strip()
+    language = body.get("language", "yo")
+    audio_format = body.get("format", "mp3")
+    
+    if not text:
+        return {"error": "text is required"}, 400
+    
+    if language not in SUPPORTED_LANGUAGES:
+        return {"error": f"Unsupported language: {language}. Supported: {list(SUPPORTED_LANGUAGES.keys())}"}, 400
+    
+    try:
+        voice = SUPPORTED_LANGUAGES[language]['voice']
+        response = spitch_client.speech.generate(
+            text=text,
+            language=language,
+            voice=voice,
+            format=audio_format
+        )
+        
+        audio_data = response.read()
+        audio_buffer = io.BytesIO(audio_data)
+        audio_buffer.seek(0)
+        
+        return send_file(
+            audio_buffer,
+            mimetype=f'audio/{audio_format}',
+            as_attachment=False,
+            download_name=f'speech.{audio_format}'
+        )
+    except Exception as exc:
+        return {"error": str(exc)}, 500
+
+
+@app.get("/speech/languages")
+def get_supported_languages():
+    """Get list of supported languages for voice interaction."""
+    return {
+        "languages": [
+            {"code": code, "name": info["name"], "voice": info["voice"]}
+            for code, info in SUPPORTED_LANGUAGES.items()
+        ]
+    }
 
 
 
