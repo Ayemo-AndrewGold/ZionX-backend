@@ -4,6 +4,8 @@ from memory import load_facts, save_fact
 from users import get_user_profile_context
 from daily_tracking import get_tracking_summary
 from emergency_alerts import send_emergency_alert, should_trigger_emergency_alert
+from risk_monitor import save_risk_assessment
+from alert_history import save_alert_record
 
 _agent = None
 
@@ -63,17 +65,31 @@ def run(message: str, thread_id: str = "default", user_id: str = "guest") -> dic
         if structured.fact:
             save_fact(user_id, structured.fact)
         
+        # Save risk assessment if risk level or urgency is present
+        if structured.risk_level or structured.urgency:
+            save_risk_assessment(user_id, {
+                "risk_level": structured.risk_level,
+                "urgency": structured.urgency,
+                "message": message,
+                "ai_response": structured.normal_response,
+                "emergency_alert_sent": False  # Will update if alert is sent
+            })
+        
         # Check if emergency alert should be triggered
         emergency_alert_sent = False
         if should_trigger_emergency_alert(structured.risk_level, structured.urgency):
             # Attempt to send emergency alert
-            success, alert_message = send_emergency_alert(user_id, {
+            alert_data = {
                 "severity": structured.risk_level,
                 "symptoms": message,
                 "ai_assessment": structured.normal_response,
                 "user_location": "Not provided"  # Could be enhanced with location tracking
-            })
+            }
+            success, alert_message = send_emergency_alert(user_id, alert_data)
             emergency_alert_sent = success
+            
+            # Record alert attempt in history
+            save_alert_record(user_id, alert_data, success, alert_message)
             
             if success:
                 # Append alert confirmation to response
@@ -95,6 +111,56 @@ def run(message: str, thread_id: str = "default", user_id: str = "guest") -> dic
             "urgency": None,
             "emergency_alert_sent": False
         }
+
+
+def get_chat_history(thread_id: str = "default") -> list[dict]:
+    """Retrieve chat history for a specific thread.
+    
+    Args:
+        thread_id: Conversation thread identifier
+        
+    Returns:
+        List of message dicts with role and content
+    """
+    try:
+        agent = get_agent()
+        config = {"configurable": {"thread_id": thread_id}}
+        
+        # Get the state from the checkpointer
+        state = agent.get_state(config)
+        
+        if not state or not state.values:
+            return []
+        
+        # Extract messages from state
+        messages = state.values.get("messages", [])
+        
+        # Convert to simple dict format
+        chat_history = []
+        for msg in messages:
+            # Skip system messages in the history
+            if hasattr(msg, 'type'):
+                if msg.type == 'system':
+                    continue
+                    
+                chat_history.append({
+                    "role": "assistant" if msg.type == "ai" else msg.type,
+                    "content": msg.content
+                })
+            elif isinstance(msg, dict):
+                if msg.get('role') == 'system':
+                    continue
+                chat_history.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+        
+        return chat_history
+    except Exception as e:
+        print(f"Error retrieving chat history: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
 
 
 # if __name__ == "__main__":
